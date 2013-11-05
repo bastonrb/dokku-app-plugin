@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+set -eo pipefail
+APP="$1";
+DOMAIN_FILE="$DOKKU_ROOT/$APP/DOMAINS"
+
+if [ -f "$DOMAIN_FILE" ]; then
+  NGINX_CONF="$DOKKU_ROOT/$APP/nginx.conf"
+  DOMAINS=$(sed ':a;N;$!ba;s/\n/ /g' "$DOMAIN_FILE")
+  sed --in-place --expression "s/server_name \(.*\);/server_name \1 $DOMAINS;/" "$NGINX_CONF"
+fi

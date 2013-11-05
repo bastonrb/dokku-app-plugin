@@ -1,0 +1,55 @@
+#!/usr/bin/env bash
+set -eo pipefail
+
+# Check if name is specified
+if [[ $1 == config ]] || [[ $1 == config:* ]]; then
+  if [[ -z $2 ]]; then
+    echo "You must specify an app name"
+    exit 1
+  else
+    APP="$2"
+    ENV_FILE="$DOKKU_ROOT/$APP/ENV"
+
+    # Check if app exists with the same name
+    if [ ! -d "$DOKKU_ROOT/$APP" ]; then
+      echo "App $APP does not exist"
+      exit 1
+    fi
+
+    [ -f $ENV_FILE ] || {
+      echo "-----> Creating $ENV_FILE"
+      touch $ENV_FILE
+    }
+  fi
+fi
+
+case "$1" in
+
+  app:domain:add)
+    if [[ -z "${*:3}" ]]; then
+      echo "Usage: dokku app:domain:add APP DOMAIN"
+      echo "Must specify APP and DOMAIN to set."
+      exit 1
+    fi
+
+    APP="$2"; APP_DIR="$DOKKU_ROOT/$APP"
+    DOMAIN="$3"
+    DOMAIN_FILE="$APP_DIR/DOMAINS"
+
+    if ! -f "$DOMAIN_FILE"; then
+      touch "$DOMAIN_FILE"
+    fi
+
+    if ! $(grep --quiet -e "^$DOMAIN$" "$DOMAIN_FILE"); then
+      echo "$DOMAIN" >> "$DOMAIN_FILE"
+    fi
+  ;;
+
+  help)
+    cat && cat<<EOF
+    app:domain:add <app> <domain>  Add custom domain to app
+EOF
+  ;;
+
+esac
+cat
