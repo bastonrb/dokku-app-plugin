@@ -2,26 +2,51 @@
 set -eo pipefail
 
 # Check if name is specified
-if [[ $1 == config ]] || [[ $1 == config:* ]]; then
+if [[ $1 == app ]] || [[ $1 == app:* ]]; then
   if [[ -z $2 ]]; then
     echo "You must specify an app name"
     exit 1
   else
-    APP="$2"
-    ENV_FILE="$DOKKU_ROOT/$APP/ENV"
+    APP="$2"; APP_DIR="$DOKKU_ROOT/$APP"
+    IMAGE="app/$APP"
 
     # Check if app exists with the same name
-    if [ ! -d "$DOKKU_ROOT/$APP" ]; then
+    if [ ! -d "$APP_DIR" ]; then
       echo "App $APP does not exist"
       exit 1
     fi
-
-    [ -f $ENV_FILE ] || {
-      echo "-----> Creating $ENV_FILE"
-      touch $ENV_FILE
-    }
   fi
 fi
+
+dokku_run() {
+  local COMMAND="$1"
+  local APP_INIT
+  APP_INIT='echo $HOME; for file in /app/.profile.d/*; do source $file; done; hash -r;'
+  echo "Running in app $APP: $COMMAND"
+  docker run -i -w=/app -e HOME=/app -e RAILS_ENV=production $IMAGE /exec /bin/bash -c "$APP_INIT $COMMAND"
+}
+
+postgres_cmd() {
+  local COMMAND="$1"
+  local BACKUP_FILE="$2"
+  local DB_IMAGE=postgresql/$APP
+  local ID=$(docker ps -a | grep "$DB_IMAGE":latest |  awk '{print $1}')
+  local IP=$(docker inspect $ID | grep IPAddress | awk '{ print $2 }' | tr -d ',"')
+  local PORT=$(docker port $ID 5432)
+  local PASS=$(grep DATABASE_URL "$DOKKU_ROOT/$APP/ENV" | sed 's/.*root:\(.*\)@.*/\1/')
+  case "$COMMAND" in
+    backup)
+      local DATE=$(date +%Y%m%d%H%M%S)
+      local FILE_NAME="db.$APP.$DATE.pg.dump"
+      echo "Dumping database for $APP to file $FILE_NAME"
+      PGPASSWORD=$PASS pg_dump --format custom --no-acl --no-owner --username=root --no-password --host $IP db > $FILE_NAME
+    ;;
+    restore)
+      echo "Restoring database to $APP from file $BACKUP_FILE"
+      PGPASSWORD=$PASS pg_restore --no-owner --username=root --no-password --host $IP --dbname db $BACKUP_FILE
+    ;;
+  esac
+}
 
 case "$1" in
 
@@ -32,7 +57,6 @@ case "$1" in
       exit 1
     fi
 
-    APP="$2"; APP_DIR="$DOKKU_ROOT/$APP"
     DOMAIN="$3"
     DOMAIN_FILE="$APP_DIR/DOMAINS"
 
@@ -45,9 +69,38 @@ case "$1" in
     fi
   ;;
 
+  app:rails:console)
+    dokku_run "rails console"
+  ;;
+
+  app:db:migrate)
+    dokku_run "rake db:migrate"
+  ;;
+
+  app:db:backup)
+    postgres_cmd "backup"
+  ;;
+
+  app:db:restore)
+    FILE="$3"
+    if [[ -z "$FILE" ]]; then
+      echo "You must specify a database file."
+      exit 2
+    fi
+    if [ ! -f "$FILE" ]; then
+      echo "File not found: $FILE"
+      exit 3
+    fi
+    postgres_cmd "restore" $FILE
+  ;;
+
   help)
     cat && cat<<EOF
-    app:domain:add <app> <domain>  Add custom domain to app
+    app:domain:add <app> <domain>   Add custom domain to app
+    app:rails:console <app>         Start rails console in app
+    app:db:migrate <app>            Run rake db:migrate in app
+    app:db:backup <app>             Make a backup of the postgres database
+    app:db:restore <app> <file>     Restore database from backup file
 EOF
   ;;
 
