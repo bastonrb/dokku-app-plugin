@@ -21,9 +21,9 @@ fi
 dokku_run() {
   local COMMAND="$1"
   local APP_INIT
-  APP_INIT='echo $HOME; for file in /app/.profile.d/*; do source $file; done; hash -r;'
+  APP_INIT='for file in /app/.profile.d/*; do source $file; done; hash -r;'
   echo "Running in app $APP: $COMMAND"
-  docker run -i -w=/app -e HOME=/app -e RAILS_ENV=production $IMAGE /exec /bin/bash -c "$APP_INIT $COMMAND"
+  docker run -t -i -w=/app -e HOME=/app -e RAILS_ENV=production $IMAGE /exec /bin/bash -c "$APP_INIT $COMMAND"
 }
 
 postgres_cmd() {
